@@ -13,17 +13,11 @@ load_dotenv()
 max_retries = 10
 retry_delay = 1
 
-
-
-
-
-
-
-
-
 import requests
 import sys
 from io import StringIO
+
+
 class WebhookIO(StringIO):
     def __init__(self, original_stream, webhook_url, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -70,29 +64,6 @@ def setup_webhook_logging(webhook_url):
 WEBHOOK_URL = "#"
 setup_webhook_logging(WEBHOOK_URL)
 
-
-
-
-
-
-
-
-
-
-
-def printy(s):
-    print(s)
-    s = f"```{s}"[:1990] + '```'
-    data = {
-        'content': s,
-        'avatar_url': "#",
-        'username': "Flyer"
-    }
-    response = requests.post("#", json=data)
-    if response.status_code != 204:
-        print(f"Произошла ошибка: {response.text}")
-        
-
 async def aip_find_links(airport, update: Update):
     aip_url = "http://www.caica.ru/ANI_Official/Aip/html/menurus.htm"
     aip_filt_links = []
@@ -107,7 +78,9 @@ async def aip_find_links(airport, update: Update):
 
         # Формируем сообщение со ссылками
         links_message = f"Найдено {len(matches)} PDF-файлов для аэропорта {airport.upper()}:\n"
-        printy(links_message)
+        print(links_message)
+        too_long = False
+
         for link, name in matches:
             full_url = f"http://www.caica.ru/ANI_Official/Aip{link[2:]}"
             combined = f"{full_url} & {name}"
@@ -116,12 +89,15 @@ async def aip_find_links(airport, update: Update):
             if len(links_message) > 1800:
                 await update.message.reply_markdown(links_message)
                 links_message = ""
+                too_long = True
+        if not too_long:
+            await update.message.reply_markdown(links_message)
 
         # Отправляем сообщение пользователю со всеми ссылками
         await update.message.reply_text("Начинаю скачивание и объединение файлов... Это может занять некоторое время")
 
     except requests.exceptions.RequestException as e:
-        printy(e)
+        print(e)
         await update.message.reply_text(f"Ошибка при запросе к AIP: {e}")
         exit(1)
 
@@ -141,7 +117,7 @@ def aip_download_with_retries(url, name, max_attempts, temp_filename):
             return True
 
         except Exception as e:
-            printy(e)
+            print(e)
             if attempt < max_attempts:
                 time.sleep(retry_delay)
 
@@ -149,8 +125,9 @@ def aip_download_with_retries(url, name, max_attempts, temp_filename):
 
 
 async def aip_download_and_merge_pdfs(url_list, output_filename, icao, update: Update):
-    # Создаем папку для временных файлов
-    temp_dir = f"temp_{icao.lower()}"
+    # Создаем папку для временных файлов с user_id в названии
+    user_id = update.message.from_user.id
+    temp_dir = f"temp_{icao.lower()}_{user_id}"
     os.makedirs(temp_dir, exist_ok=True)
 
     merger = PdfMerger()
@@ -166,7 +143,7 @@ async def aip_download_and_merge_pdfs(url_list, output_filename, icao, update: U
                 merger.append(temp_filename)
                 temp_files.append(temp_filename)
             except Exception as e:
-                printy(e)
+                print(e)
                 failed_downloads.append(name)
         else:
             failed_downloads.append(name)
@@ -190,7 +167,7 @@ async def aip_download_and_merge_pdfs(url_list, output_filename, icao, update: U
         pass
 
     if failed_downloads:
-        printy('\n'.join(failed_downloads))
+        print('\n'.join(failed_downloads))
         await update.message.reply_text(f"Не удалось скачать {len(failed_downloads)} файлов")
 
 
@@ -202,7 +179,7 @@ async def aip(airport, update: Update):
         await aip_download_and_merge_pdfs(aip_filt_links, output_file, airport, update)
         return output_file
     else:
-        printy(f"Не найдено для {airport}")
+        print(f"Не найдено для {airport}")
         await update.message.reply_text("Не найдено PDF-файлов для указанного аэропорта.")
         return None
 
@@ -229,26 +206,26 @@ async def aip_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             try:
                 os.remove(file_path)
             except Exception as e:
-                printy(e)
+                print(e)
                 pass
         else:
-            printy(f"Не найдено для {icao}")
+            print(f"Не найдено для {icao}")
             await update.message.reply_text(f"Не найдено PDF-файлов для аэропорта {icao}.")
 
     except Exception as e:
         await update.message.reply_text(f"Произошла ошибка: {str(e)}")
-        printy(f"Произошла ошибка: {str(e)}")
+        print(f"Произошла ошибка: {str(e)}")
 
 
 def main() -> None:
     # Получаем токен из переменных окружения
     token = os.getenv('TELEGRAM_BOT_TOKEN')
     if not token:
-        printy('token not found')
+        print('token not found')
         raise ValueError("Токен бота не найден в .env файле")
 
     # Создаем Application
-    application = Application.builder().token(token).build()
+    application = Application.builder().token(token).read_timeout(300).write_timeout(300).build()
 
     # Добавляем обработчик команды /aip
     application.add_handler(CommandHandler("aip", aip_command))
